@@ -1,0 +1,121 @@
+如何读取一副BMP图像中的数据并存入数组
+ 悬赏分：35 - 解决时间：2008-5-15 13:23
+如题 
+我已经用fopen和fread把BMP的头文件和头信息读入相应的结构体了，经过输出是正确的。 
+但是定义的结构体 
+typedef struct tagRGBQUAD 
+{ 
+BYTE rgbBlue; 
+BYTE rgbGreen; 
+BYTE rgbRed; 
+BYTE rgbReserved; 
+}RGBQUAD; 
+输出后 rgbBlue;rgbGreen; rgbRed;rgbReserved;都没有值是怎么回事？ 
+
+还有另外更重要的是我怎么读取BMP里面的数据到一个数组里呢？（对于这个问题，我想用文件指针fp++循环输出但是总是错的） 
+
+这个数组应该定义什么类型？ 
+
+以上问题我想用函数来实现，最好不要用类，和一些什么句柄什么的，因为我不太懂……我只是一个初学者，用C的思想完成 
+
+最好有现成的可以直接执行的程序 谢谢各位大侠了 
+我的邮箱lshonline@163.com
+提问者： 坷拉里就 - 魔法学徒 一级 最佳答案
+文件指针指向的是一个保存文件信息的结构，在你用fread读取文件的时候它就自动把读取位置向后移动了，这个你不用管他。 
+
+代码如下： 
+const RGBQUAD undefinedQuad={0,0,0,0}; 
+const DWORD _16bitMask=(1<<5)-1; 
+RGBQUAD* ReadBmpFile(const char* filename,BITMAPFILEHEADER* header,BITMAPINFOHEADER* infoheader,RGBQUAD** index=NULL) 
+{ 
+DWORD pxcnt; 
+DWORD i; 
+RGBQUAD* pixels=NULL; 
+BYTE* bits=NULL; 
+FILE*file=fopen(filename,"rb"); 
+fread(header,sizeof(BITMAPFILEHEADER),1,file); 
+fread(infoheader,sizeof(BITMAPINFOHEADER),1,file); 
+RGBQUAD* palette=NULL; 
+//如果有调色板，则调用调色板 
+if(infoheader->biBitCount<24) 
+{ 
+palette=(RGBQUAD*)malloc(sizeof(RGBQUAD)*infoheader->biClrUsed); 
+fread(palette,sizeof(RGBQUAD),infoheader->biClrUsed,file); 
+} 
+pxcnt=infoheader->biHeight*infoheader->biWidth; 
+pixels=(RGBQUAD*)malloc(sizeof(RGBQUAD)*pxcnt); 
+//从header->bfOffBits开始读取， 
+fseek(file,header->bfOffBits,SEEK_SET); 
+if(infoheader->biBitCount<=24) 
+{ 
+bits=(BYTE*)malloc(infoheader->biSizeImage); 
+fread(bits,1,infoheader->biSizeImage,file); 
+//如果有调色板，则将复制到对应像素 
+switch(infoheader->biBitCount) 
+{ 
+case 1: 
+case 2: 
+case 4: 
+{ 
+for(i=0;i<pxcnt;i++) 
+{ 
+DWORD px=bits[i*infoheader->biBitCount>>8]>>(i&7)&((1<<infoheader->biBitCount)-1);//取得某一个位置的像素 
+if(px<infoheader->biClrUsed) 
+pixels[i]=palette[px]; 
+else 
+pixels[i]=undefinedQuad; 
+} 
+} 
+break; 
+case 8: 
+{ 
+for(i=0;i<pxcnt;i++) 
+{ 
+DWORD px=bits[i];//取得某一个位置的像素 
+if(px<infoheader->biClrUsed)//出于安全问题，限制色彩范围。 
+pixels[i]=palette[px]; 
+else 
+pixels[i]=undefinedQuad;//超出调色板范围， 
+} 
+} 
+break; 
+case 16: 
+{ 
+//16位增强色 
+//一般是RGB各5bit 
+WORD* pxwd=(WORD*)bits; 
+for(i=0;i<pxcnt;i++) 
+{ 
+pixels[i].rgbBlue=pxwd[i]&_16bitMask; 
+pixels[i].rgbGreen=(pxwd[i]>>5)&_16bitMask; 
+pixels[i].rgbRed=(pxwd[i]>>10)&_16bitMask; 
+pixels[i].rgbReserved=0; 
+} 
+} 
+break; 
+case 24: 
+{ 
+//将三个字节的数据扩展为4字节的 
+for(i=0;i<pxcnt;i++) 
+{ 
+pixels[i].rgbBlue=bits[i*3]; 
+pixels[i].rgbGreen=bits[i*3+1]; 
+pixels[i].rgbRed=bits[i*3+2]; 
+pixels[i].rgbReserved=0; 
+} 
+} 
+} 
+free(bits); 
+if(index==NULL) 
+free(palette); 
+else 
+*index=palette; 
+} 
+else 
+{ 
+//如果没有调色板，则直接使用文件内的区域。 
+fread(pixels,1,infoheader->biSizeImage,file); 
+} 
+fclose(file); 
+return pixels; 
+} 
